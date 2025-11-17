@@ -1,7 +1,9 @@
 #include <stdio.h>
 #include <cstdlib>  
 #include <ctime>
-#include <cmath> 
+#include <cmath>
+#include "mnist.h" 
+#include <random>
 
 enum ActivationFunction {
     SIGMOID,
@@ -14,7 +16,7 @@ struct Neuron {
     float bias;
     float* weights;
     
-    float delta;
+    float delta; // dl / dz (preactivation)
     float preActivation; // store z before activation for derivatives
 };
 
@@ -36,9 +38,13 @@ struct MLP {
 
 
 
-float randomWeight() {
-    return ((float) rand() / RAND_MAX) * 2 - 1;
+float randomWeight(int fan_in) {
+    static std::default_random_engine gen(std::random_device{}());
+    float stddev = sqrtf(2.0f / fan_in);
+    std::normal_distribution<float> dist(0.0f, stddev);
+    return dist(gen);
 }
+
 
 Layer createLayer(int neuronCount, int inputPerNeuron, ActivationFunction activation = SIGMOID) {
     Layer layer;
@@ -49,13 +55,13 @@ Layer createLayer(int neuronCount, int inputPerNeuron, ActivationFunction activa
     layer.activation = activation;
 
     for (int i = 0; i < neuronCount; i++) {
-        layer.neurons[i].bias = randomWeight();
+        layer.neurons[i].bias = 0.0f;
         layer.neurons[i].weights = new float[inputPerNeuron];
         
         layer.neurons[i].delta = 0.0f;
         
         for (int j = 0; j < inputPerNeuron; j++) {
-            layer.neurons[i].weights[j] = randomWeight();
+            layer.neurons[i].weights[j] = randomWeight(inputPerNeuron);
         }
     }
 
@@ -84,7 +90,9 @@ float reluDerivative(float x) {
 void softmax(float* input, int size, float* output) {
     float maxVal = input[0];
     for (int i = 1; i < size; i++) {
-        if (input[i] > maxVal) maxVal = input[i];
+        if (input[i] > maxVal) {
+            maxVal = input[i];
+        }
     }
     
     float sum = 0.0f;
@@ -142,13 +150,6 @@ MLP createMLP(int* layerSizes, int layerCount, int inputSize, ActivationFunction
 
 
 void forwardMLP(MLP& mlp, float* input, int inputSize, float* output) {
-    if (mlp.layerCount == 0) {
-        for (int i = 0; i < inputSize; i++) {
-            output[i] = input[i];
-        }
-        return;
-    }
-
     float* currentInput = input;
     int currentInputSize = inputSize;
 
@@ -177,6 +178,7 @@ void backwardMLP(MLP& mlp, float* input, int inputSize, float* predictions, floa
     for (int i = 0; i < outputLayer.neuronCount; i++) {
         float output = outputLayer.neurons[i].value;
         float error = output - targets[i]; // dL / d y_pred
+
         if (outputLayer.activation == SOFTMAX) {
             outputLayer.neurons[i].delta = error; // dL / d output
         } else if (outputLayer.activation == RELU) {
@@ -210,11 +212,13 @@ void backwardMLP(MLP& mlp, float* input, int inputSize, float* predictions, floa
                 layer.neurons[i].delta = sumDeltas * reluDerivative(layer.neurons[i].preActivation);
             } else {
                 float sigmoidDerivative = output * (1.0f - output);
+                // dL / d z this layer 
                 layer.neurons[i].delta = sumDeltas * sigmoidDerivative;
             }
 
             for (int j = 0; j < layer.inputSize; j++) {
-                float gradient = layer.neurons[i].delta * layer.layerInputs[j];
+                // dL / d z this layer * d z / d weight
+                float gradient = layer.neurons[i].delta * layer.layerInputs[j]; // dL / d weight
                 layer.neurons[i].weights[j] -= learningRate * gradient;
 
             }
@@ -230,48 +234,118 @@ void backwardMLP(MLP& mlp, float* input, int inputSize, float* predictions, floa
 int main() {
     srand(time(0));  
     
-    float xorInputs[4][2] = {
-        {0.0f, 0.0f},
-        {0.0f, 1.0f},
-        {1.0f, 0.0f},
-        {1.0f, 1.0f}
-    };
+    printf("Loading MNIST data...\n");
+    if (!loadMNIST("mnist_train.csv")) {
+        printf("Failed to load MNIST data\n");
+        return 1;
+    }
+
+    
+    printf("Loaded %zu images\n", images.size());
+    
+    int layerSizes[] = {128, 64, 10}; 
+    ActivationFunction activations[] = {SIGMOID, SIGMOID, SOFTMAX};
+    int layerCount = 3;
+    int inputSize = 784; 
+    
+    int max = 0;
+    int min = 255;
+    for (int i = 0; i < images.size(); i++) {
+        for(int j = 0; j < inputSize; j++) {
+            for (int k = 0; k < 784; k++) {
+                if (images[i][k] > max) {
+                    max = images[i][k];
+                }
+                if (images[i][k] < min) {
+                    min = images[i][k];
+                }
+            }
+        }
+    }
+
+    printf("Max pixel value across all images: %d\n", max);
+    printf("Min pixel value across all images: %d\n", min);
+
     
 
-    float xorTargets[4][2] = {
-        {1.0f, 0.0f},  
-        {0.0f, 1.0f},  
-        {0.0f, 1.0f}, 
-        {1.0f, 0.0f}   
-    };
-    
-    int layerSizes[] = {8, 8, 2}; 
-    ActivationFunction activations[] = {RELU, RELU, SOFTMAX};
-    int layerCount = 3;
-    int inputSize = 2;
-    
     MLP mlp = createMLP(layerSizes, layerCount, inputSize, activations);
     
     float learningRate = 0.01f;
+    
+    printf("Training...\n");
+    
+    for (int epoch = 0; epoch < 10; epoch++) {
+        clock_t startTime = clock();
+        
+        for (size_t i = 0; i < images.size(); i++) {
 
-    for (int epoch = 0; epoch < 500; epoch++) {
-        for (int i = 0; i < 4; i++) {
-            float output[2];
-            forwardMLP(mlp, xorInputs[i], inputSize, output);
-            backwardMLP(mlp, xorInputs[i], inputSize, output, xorTargets[i], learningRate);
+            // Normalize pixel values to [0, 1]
+            float* normalizedInput = new float[inputSize];
+            for (int j = 0; j < inputSize; j++) {
+                normalizedInput[j] = images[i][j] / 255.0f;
+            }
+            
+            // one hot encoded target
+            float target[10] = {0.0f};
+            target[labels[i]] = 1.0f;
+            
+            float output[10];
+            forwardMLP(mlp, normalizedInput, inputSize, output);
+            backwardMLP(mlp, normalizedInput, inputSize, output, target, learningRate);
+            
+            delete[] normalizedInput;
         }
-    }
-    for (int i = 0; i < 4; i++) {
-        float output[2];
-        forwardMLP(mlp, xorInputs[i], inputSize, output);
-        printf("Input: [%.1f, %.1f] Output: [%.4f, %.4f], Target: [%.1f, %.1f]\n", 
-               xorInputs[i][0], xorInputs[i][1], 
-               output[0], output[1],
-               xorTargets[i][0], xorTargets[i][1]
-               );
+        
+        clock_t endTime = clock();
+        double elapsedTime = (double)(endTime - startTime) / CLOCKS_PER_SEC;
+        printf("Epoch %d completed in %.2f seconds\n", epoch + 1, elapsedTime);
     }
     
+    // Load test data
+    printf("\nLoading test data...\n");
+    if (!loadMNIST("mnist_test.csv")) {
+        printf("Failed to load test data\n");
+        return 1;
+    }
+    
+    printf("Loaded %zu test images\n", images.size());
+    
+    int correct = 0;
+    for (size_t i = 0; i < images.size(); i++) {
+        float* normalizedInput = new float[inputSize];
+        for (int j = 0; j < inputSize; j++) {
+            normalizedInput[j] = images[i][j] / 255.0f;
+        }
+        
+        float output[10];
+        forwardMLP(mlp, normalizedInput, inputSize, output);
+        
+        int predicted = 0;
+        for (int j = 1; j < 10; j++) {
+            if (output[j] > output[predicted]) {
+                predicted = j;
+            }
+        }
+        
+        if (predicted == labels[i]) {
+            correct++;
+        }
+        
+
+        if (i < 10) {
+            printf("Sample %zu: Predicted: %d, Actual: %d | Outputs: [", i, predicted, labels[i]);
+            for (int j = 0; j < 10; j++) {
+                printf("%.4f", output[j]);
+                if (j < 9) printf(", ");
+            }
+            printf("]\n");
+        }
+        
+        delete[] normalizedInput;
+    }
+    
+    printf("\nTest Accuracy: %d/%zu (%.2f%%)\n", 
+           correct, images.size(), 100.0f * correct / images.size());
     
     return 0;
-
 }
