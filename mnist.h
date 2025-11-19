@@ -9,7 +9,7 @@ std::vector<std::vector<int>> images;
 std::vector<int> labels;
 
 bool loadMNIST(const char* filename) {
-    FILE *f = fopen(filename, "r");
+    FILE *f = fopen(filename, "rb");
     if (f == NULL) {
         printf("Error opening file: %s\n", filename);
         return false;

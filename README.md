@@ -1,7 +1,7 @@
-# Multilayer Perceptron from scratch
+# Multi Layer Perceptron from scratch
 
-- MNIST dataset used can be found (here)[https://www.kaggle.com/datasets/oddrationale/mnist-in-csv]
--
+- MNIST dataset used can be found [here](https://www.kaggle.com/datasets/oddrationale/mnist-in-csv)
+
 
 # Training Results
 - Trained for 10 epochs with the following architecture:

@@ -107,7 +107,6 @@ void softmax(float* input, int size, float* output) {
 }
 
 
-
 void forwardLayer(Layer& layer, float* inputs, int inputSize, float* outputs) {
     for (int j = 0; j < inputSize; j++) {
         layer.layerInputs[j] = inputs[j];
@@ -178,6 +177,7 @@ void backwardMLP(MLP& mlp, float* input, int inputSize, float* predictions, floa
     for (int i = 0; i < outputLayer.neuronCount; i++) {
         float output = outputLayer.neurons[i].value;
         float error = output - targets[i]; // dL / d y_pred
+        
 
         if (outputLayer.activation == SOFTMAX) {
             outputLayer.neurons[i].delta = error; // dL / d output
@@ -188,13 +188,7 @@ void backwardMLP(MLP& mlp, float* input, int inputSize, float* predictions, floa
             outputLayer.neurons[i].delta = error * sigmoidDerivative; // dL / d output
         }
 
-        for (int j = 0; j < outputLayer.inputSize; j++) {
-            // dL / d output * d output / d weight
-            float gradient = outputLayer.neurons[i].delta * outputLayer.layerInputs[j]; // dL / d weight
-            outputLayer.neurons[i].weights[j] -= learningRate * gradient;
-        }
 
-        outputLayer.neurons[i].bias -= learningRate * outputLayer.neurons[i].delta;
     }
 
     for (int l = mlp.layerCount - 2; l >= 0; l--) {
@@ -214,20 +208,22 @@ void backwardMLP(MLP& mlp, float* input, int inputSize, float* predictions, floa
                 float sigmoidDerivative = output * (1.0f - output);
                 // dL / d z this layer 
                 layer.neurons[i].delta = sumDeltas * sigmoidDerivative;
+                
             }
 
-            for (int j = 0; j < layer.inputSize; j++) {
-                // dL / d z this layer * d z / d weight
-                float gradient = layer.neurons[i].delta * layer.layerInputs[j]; // dL / d weight
-                layer.neurons[i].weights[j] -= learningRate * gradient;
-
-            }
-
-            layer.neurons[i].bias -= learningRate * layer.neurons[i].delta;
         }
     }
 
-  
+    for(int l = 0; l < mlp.layerCount; l++) {
+        Layer& layer = mlp.layers[l];
+        for (int i = 0; i < layer.neuronCount; i++) {
+            for (int j = 0; j < layer.inputSize; j++) {
+                float gradient = layer.neurons[i].delta * layer.layerInputs[j]; // dL / d weight
+                layer.neurons[i].weights[j] -= learningRate * gradient;
+            }
+            layer.neurons[i].bias -= learningRate * layer.neurons[i].delta;
+        }
+    }
 }
 
 
@@ -244,22 +240,21 @@ int main() {
     printf("Loaded %zu images\n", images.size());
     
     int layerSizes[] = {128, 64, 10}; 
-    ActivationFunction activations[] = {SIGMOID, SIGMOID, SOFTMAX};
-    int layerCount = 3;
+    ActivationFunction activations[] = {RELU, RELU, SOFTMAX};
+    int layerCount = sizeof(layerSizes) / sizeof(layerSizes[0]);
     int inputSize = 784; 
     
     int max = 0;
     int min = 255;
     for (int i = 0; i < images.size(); i++) {
         for(int j = 0; j < inputSize; j++) {
-            for (int k = 0; k < 784; k++) {
-                if (images[i][k] > max) {
-                    max = images[i][k];
-                }
-                if (images[i][k] < min) {
-                    min = images[i][k];
-                }
+            if (images[i][j] > max) {
+                max = images[i][j];
             }
+            if (images[i][j] < min) {
+                min = images[i][j];
+            }
+            
         }
     }
 
@@ -274,7 +269,7 @@ int main() {
     
     printf("Training...\n");
     
-    for (int epoch = 0; epoch < 10; epoch++) {
+    for (int epoch = 0; epoch < 5; epoch++) {
         clock_t startTime = clock();
         
         for (size_t i = 0; i < images.size(); i++) {
