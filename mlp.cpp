@@ -36,8 +36,6 @@ struct MLP {
 };
 
 
-
-
 float randomWeight(int fan_in) {
     static std::default_random_engine gen(std::random_device{}());
     float stddev = sqrtf(2.0f / fan_in);
@@ -240,7 +238,7 @@ int main() {
     printf("Loaded %zu images\n", images.size());
     
     int layerSizes[] = {128, 64, 10}; 
-    ActivationFunction activations[] = {RELU, RELU, SOFTMAX};
+    ActivationFunction activations[] = {SIGMOID, SIGMOID, SOFTMAX};
     int layerCount = sizeof(layerSizes) / sizeof(layerSizes[0]);
     int inputSize = 784; 
     
@@ -269,7 +267,7 @@ int main() {
     
     printf("Training...\n");
     
-    for (int epoch = 0; epoch < 5; epoch++) {
+    for (int epoch = 0; epoch < 10; epoch++) {
         clock_t startTime = clock();
         
         for (size_t i = 0; i < images.size(); i++) {
